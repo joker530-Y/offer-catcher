@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Offer 捕手</title>
+  <link rel="stylesheet" href="/styles.css?v=20260602-larger-resume-fields">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">学生求职匹配智能体</p>
+      <h1>Offer 捕手</h1>
+    </div>
+    <div class="status">
+      <span class="dot"></span>
+      Java API / CloudBase CloudRun Ready
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel profile-panel">
+      <div class="section-head">
+        <h2>学生画像</h2>
+        <button id="fillSample" class="secondary-button" type="button">填入示例简历</button>
+      </div>
+
+      <div id="resumeDropZone" class="upload-box">
+        <input id="resumeFile" type="file" accept="application/pdf,.pdf" hidden>
+        <button id="uploadResumeBtn" class="upload-button" type="button">
+          <span>↑</span>
+          一键上传 PDF 简历
+        </button>
+        <p id="uploadStatus">点击上传，或将 PDF 简历拖入此区域；图片型 PDF 需要后续接 OCR。</p>
+      </div>
+
+      <label>姓名 / 昵称
+        <input id="name" placeholder="上传简历后自动填充，或手动输入">
+      </label>
+      <label>学校
+        <input id="school" placeholder="例如：某大学">
+      </label>
+      <label>专业
+        <input id="major" placeholder="例如：软件工程">
+      </label>
+      <label>届别
+        <input id="grade" placeholder="例如：2026届">
+      </label>
+      <label>目标岗位
+        <input id="targetRoles" placeholder="例如：后端开发, 云计算开发">
+      </label>
+      <label>偏好城市
+        <input id="cities" placeholder="例如：深圳, 杭州, 北京">
+      </label>
+      <label>技能
+        <textarea id="skills" placeholder="例如：Java, Spring, MySQL, Redis"></textarea>
+      </label>
+      <label>实习经历
+        <textarea id="internships" placeholder="填写真实实习经历、职责和产出"></textarea>
+      </label>
+      <label>项目经历
+        <textarea id="projects" class="large-textarea projects-textarea" placeholder="填写真实项目经历、职责和量化结果"></textarea>
+      </label>
+      <label>职业兴趣
+        <textarea id="interests" placeholder="例如：云服务, 高并发, 后端工程"></textarea>
+      </label>
+      <label>简历正文
+        <textarea id="resumeText" class="large-textarea resume-textarea" placeholder="上传 PDF 后自动填充，也可以粘贴简历正文"></textarea>
+      </label>
+      <button id="matchBtn" class="primary" type="button">根据简历寻找岗位</button>
+    </section>
+
+    <section class="workspace">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">匹配 + 诊断 + 优化</p>
+          <h2>根据简历去各大招聘官网寻找更值得投递的机会</h2>
+          <p>上传简历或补充画像后，系统会实时请求 12 家企业招聘官网；不展示本地候选池，只返回与当前简历相关的岗位、官网连接或检索入口。</p>
+        </div>
+        <div class="score-tile">
+          <span id="topScore">--</span>
+          <small>最高匹配分</small>
+        </div>
+      </section>
+
+      <section class="compliance" id="complianceBox"></section>
+
+      <section class="history">
+        <div class="section-head">
+          <h2>历史记录</h2>
+          <button id="clearHistoryBtn" type="button">清空历史</button>
+        </div>
+        <div class="history-grid">
+          <div>
+            <h3>匹配历史</h3>
+            <div id="matchHistoryList" class="history-list"></div>
+          </div>
+          <div>
+            <h3>简历上传</h3>
+            <div id="resumeHistoryList" class="history-list"></div>
+          </div>
+          <div>
+            <h3>收藏岗位</h3>
+            <div id="favoriteList" class="history-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="results">
+        <div class="section-head">
+          <h2>推荐岗位</h2>
+          <span id="resultCount">等待简历</span>
+        </div>
+        <div id="jobList" class="job-list"></div>
+      </section>
+
+      <section class="diagnosis">
+        <div class="section-head">
+          <h2>岗位诊断</h2>
+          <select id="jobSelect"></select>
+        </div>
+        <div class="custom-jd">
+          <textarea id="customJd" placeholder="也可以粘贴心仪岗位 JD，系统会生成单岗位诊断。"></textarea>
+          <button id="analyzeBtn" type="button">分析心仪岗位</button>
+        </div>
+        <div id="diagnosisBox" class="diagnosis-box"></div>
+      </section>
+    </section>
+  </main>
+
+  <script src="/app.js?v=20260602-larger-resume-fields"></script>
+</body>
+</html>

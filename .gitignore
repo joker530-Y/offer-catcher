@@ -1,0 +1,10 @@
+build/
+lib/*.jar
+*.class
+.env
+.env.*
+*.log
+*.tmp
+*.pid
+.DS_Store
+Thumbs.db
