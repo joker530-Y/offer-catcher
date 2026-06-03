@@ -10,9 +10,43 @@ let sampleFilled = false;
 const storageKeys = {
   resumeHistory: "offerCatcher.resumeHistory",
   matchHistory: "offerCatcher.matchHistory",
-  favoriteJobs: "offerCatcher.favoriteJobs"
+  favoriteJobs: "offerCatcher.favoriteJobs",
+  llmConfig: "offerCatcher.llmConfig"
 };
 const historyLimit = 20;
+const llmProviders = {
+  qwen: {
+    label: "Qwen / 阿里云百炼",
+    baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+    apiKeyPlaceholder: "填写 DASHSCOPE_API_KEY",
+    models: ["qwen-plus", "qwen-turbo", "qwen-max"]
+  },
+  deepseek: {
+    label: "DeepSeek",
+    baseUrl: "https://api.deepseek.com",
+    apiKeyPlaceholder: "填写 DEEPSEEK_API_KEY",
+    models: ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"]
+  },
+  zhipu: {
+    label: "智谱 GLM",
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    apiKeyPlaceholder: "填写 ZHIPU_API_KEY / BIGMODEL_API_KEY",
+    models: ["glm-4-flash", "glm-4-plus", "glm-4-air"]
+  },
+  siliconflow: {
+    label: "硅基流动",
+    baseUrl: "https://api.siliconflow.cn/v1",
+    apiKeyPlaceholder: "填写 SILICONFLOW_API_KEY",
+    models: ["Qwen/Qwen2.5-7B-Instruct", "deepseek-ai/DeepSeek-V3", "deepseek-ai/DeepSeek-R1"]
+  }
+};
+const defaultLlmConfig = {
+  enabled: false,
+  provider: "qwen",
+  baseUrl: llmProviders.qwen.baseUrl,
+  model: llmProviders.qwen.models[0],
+  apiKey: ""
+};
 
 const split = (value) => value.split(/[,，;；、\n]/).map((item) => item.trim()).filter(Boolean);
 
@@ -111,9 +145,9 @@ async function analyzeSelected() {
   }
   const data = await api("/api/analyze", {
     method: "POST",
-    body: JSON.stringify({ profile, jobId, customJd })
+    body: JSON.stringify({ profile, jobId, customJd, llmConfig: activeLlmConfig() })
   });
-  renderDiagnosis(data.report);
+  renderDiagnosis(data.report, data);
 }
 
 async function uploadResume(file) {
@@ -237,16 +271,19 @@ function renderInitialState(sourceCount) {
   document.getElementById("diagnosisBox").innerHTML = "<p>搜索结果生成后，点击岗位卡片的“查看诊断”才会生成诊断报告。</p>";
 }
 
-function renderDiagnosis(report) {
+function renderDiagnosis(report, meta = {}) {
   const dimensions = Object.entries(report.dimensions).map(([name, score]) => `
     <div class="dimension">
       <strong>${score}</strong>
       <span>${escapeHtml(name)}</span>
     </div>
   `).join("");
+  const llmState = diagnosisLlmState(meta);
 
   document.getElementById("diagnosisBox").innerHTML = `
     <h3>${escapeHtml(report.job.company)} · ${escapeHtml(report.job.title)}</h3>
+    <span class="diagnosis-mode ${escapeHtml(llmState.className)}">${escapeHtml(llmState.label)}</span>
+    ${llmState.message ? `<p class="llm-message">${escapeHtml(llmState.message)}</p>` : ""}
     <p>${escapeHtml(report.explanation)}</p>
     <div class="dimension-grid">${dimensions}</div>
     <div class="list-block">
@@ -258,6 +295,21 @@ function renderDiagnosis(report) {
   `;
 }
 
+function diagnosisLlmState(meta = {}) {
+  if (meta.llmEnhanced) {
+    const suffix = meta.llmProvider ? ` / ${meta.llmProvider}${meta.llmModel ? ` / ${meta.llmModel}` : ""}` : "";
+    return { label: `大模型增强${suffix}`, className: "llm-ok", message: meta.llmMessage || "" };
+  }
+  if (meta.llmAttempted) {
+    const suffix = meta.llmProvider ? ` / ${meta.llmProvider}${meta.llmModel ? ` / ${meta.llmModel}` : ""}` : "";
+    return { label: `大模型调用失败，已回退${suffix}`, className: "llm-fallback", message: meta.llmMessage || "" };
+  }
+  if (meta.llmStatus === "missing_key") {
+    return { label: "规则诊断 / 大模型缺少 API Key", className: "llm-fallback", message: meta.llmMessage || "" };
+  }
+  return { label: "规则诊断", className: "", message: meta.llmMessage || "" };
+}
+
 function listBlock(title, items) {
   return `
     <div>
@@ -267,12 +319,22 @@ function listBlock(title, items) {
   `;
 }
 
-function selectReport(jobId) {
+async function selectReport(jobId) {
   const report = latestReports.find((item) => item.job.id === jobId);
   if (report) {
     document.getElementById("jobSelect").value = jobId;
-    renderDiagnosis(report);
+    document.getElementById("diagnosisBox").innerHTML = "<p>正在生成岗位诊断...</p>";
     document.querySelector(".diagnosis").scrollIntoView({ behavior: "smooth", block: "start" });
+    try {
+      const data = await api("/api/analyze", {
+        method: "POST",
+        body: JSON.stringify({ profile: readProfile(), jobId, customJd: "", llmConfig: activeLlmConfig() })
+      });
+      renderDiagnosis(data.report, data);
+    } catch (error) {
+      renderDiagnosis(report, { llmEnhanced: false, llmProvider: "rules" });
+      showToast(error.message);
+    }
   }
 }
 
@@ -299,6 +361,100 @@ function storageRead(key, fallback) {
 
 function storageWrite(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
+}
+
+function savedLlmConfig() {
+  const raw = { ...defaultLlmConfig, ...storageRead(storageKeys.llmConfig, {}) };
+  const provider = llmProviders[raw.provider] ? raw.provider : "qwen";
+  const meta = llmProviders[provider];
+  const model = meta.models.includes(raw.model) ? raw.model : meta.models[0];
+  return { ...raw, provider, baseUrl: meta.baseUrl, model };
+}
+
+function activeLlmConfig() {
+  const config = savedLlmConfig();
+  if (!config.enabled) return { ...config, apiKey: "" };
+  const meta = llmProviders[config.provider] || llmProviders.qwen;
+  return {
+    enabled: true,
+    provider: config.provider,
+    baseUrl: meta.baseUrl,
+    model: config.model || meta.models[0],
+    apiKey: config.apiKey || ""
+  };
+}
+
+function renderLlmStatus() {
+  const config = savedLlmConfig();
+  const button = document.getElementById("llmConfigBtn");
+  if (!button) return;
+  const active = Boolean(config.enabled && config.apiKey);
+  const providerLabel = llmProviders[config.provider]?.label || config.provider;
+  button.classList.toggle("llm-active", active);
+  button.textContent = active ? `大模型：${providerLabel}` : "添加大模型";
+}
+
+function openLlmModal() {
+  const config = savedLlmConfig();
+  renderLlmProviderOptions();
+  document.getElementById("llmEnabled").checked = Boolean(config.enabled);
+  document.getElementById("llmProvider").value = config.provider;
+  renderLlmModelOptions(config.provider, config.model);
+  document.getElementById("llmApiKey").value = config.apiKey || "";
+  document.getElementById("llmModal").hidden = false;
+}
+
+function closeLlmModal() {
+  document.getElementById("llmModal").hidden = true;
+}
+
+function saveLlmConfig() {
+  const provider = value("llmProvider") || "qwen";
+  const meta = llmProviders[provider] || llmProviders.qwen;
+  const config = {
+    enabled: document.getElementById("llmEnabled").checked,
+    provider,
+    baseUrl: meta.baseUrl,
+    model: value("llmModel") || meta.models[0],
+    apiKey: value("llmApiKey")
+  };
+  if (config.enabled && !config.apiKey) {
+    showToast("请先填写 API Key");
+    return;
+  }
+  storageWrite(storageKeys.llmConfig, config);
+  renderLlmStatus();
+  closeLlmModal();
+  showToast(config.enabled ? "大模型配置已启用" : "大模型配置已保存但未启用");
+}
+
+function clearLlmConfig() {
+  localStorage.removeItem(storageKeys.llmConfig);
+  document.getElementById("llmEnabled").checked = false;
+  document.getElementById("llmApiKey").value = "";
+  document.getElementById("llmProvider").value = defaultLlmConfig.provider;
+  renderLlmModelOptions(defaultLlmConfig.provider, defaultLlmConfig.model);
+  renderLlmStatus();
+  closeLlmModal();
+  showToast("已清除大模型配置");
+}
+
+function renderLlmProviderOptions() {
+  const select = document.getElementById("llmProvider");
+  select.innerHTML = Object.entries(llmProviders).map(([id, provider]) =>
+    `<option value="${escapeHtml(id)}">${escapeHtml(provider.label)}</option>`
+  ).join("");
+}
+
+function renderLlmModelOptions(providerId, selectedModel) {
+  const provider = llmProviders[providerId] || llmProviders.qwen;
+  const select = document.getElementById("llmModel");
+  select.innerHTML = provider.models.map((model) =>
+    `<option value="${escapeHtml(model)}">${escapeHtml(model)}</option>`
+  ).join("");
+  select.value = provider.models.includes(selectedModel) ? selectedModel : provider.models[0];
+  document.getElementById("llmApiKey").placeholder = provider.apiKeyPlaceholder;
+  document.getElementById("llmBaseUrlText").textContent = provider.baseUrl;
 }
 
 function profileSummary(profile = {}) {
@@ -473,7 +629,7 @@ function restoreResumeHistory(id) {
 function diagnoseFavorite(id) {
   const item = getFavorites()[id];
   if (!item) return;
-  renderDiagnosis(item.report);
+  renderDiagnosis(item.report, { llmEnhanced: false, llmProvider: "rules" });
   document.querySelector(".diagnosis").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -550,6 +706,19 @@ document.getElementById("matchBtn").addEventListener("click", matchJobs);
 document.getElementById("analyzeBtn").addEventListener("click", analyzeSelected);
 document.getElementById("fillSample").addEventListener("click", toggleSampleResume);
 document.getElementById("clearHistoryBtn").addEventListener("click", clearHistory);
+document.getElementById("llmConfigBtn").addEventListener("click", openLlmModal);
+document.getElementById("llmCloseBtn").addEventListener("click", closeLlmModal);
+document.getElementById("llmSaveBtn").addEventListener("click", saveLlmConfig);
+document.getElementById("llmClearBtn").addEventListener("click", clearLlmConfig);
+document.getElementById("llmProvider").addEventListener("change", (event) => {
+  renderLlmModelOptions(event.target.value);
+});
+document.getElementById("llmModal").addEventListener("click", (event) => {
+  if (event.target.id === "llmModal") closeLlmModal();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !document.getElementById("llmModal").hidden) closeLlmModal();
+});
 document.getElementById("uploadResumeBtn").addEventListener("click", () => {
   document.getElementById("resumeFile").click();
 });
@@ -594,6 +763,8 @@ document.querySelector(".history").addEventListener("click", (event) => {
 });
 
 renderHistory();
+renderLlmProviderOptions();
+renderLlmStatus();
 loadJobs().catch((error) => {
   document.getElementById("jobList").innerHTML = `<p>${escapeHtml(error.message)}</p>`;
 });

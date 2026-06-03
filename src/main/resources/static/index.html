@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Offer 捕手</title>
-  <link rel="stylesheet" href="/styles.css?v=20260602-larger-resume-fields">
+  <link rel="stylesheet" href="/styles.css?v=20260603-llm-status-ui">
 </head>
 <body>
   <header class="topbar">
@@ -15,6 +15,7 @@
     <div class="status">
       <span class="dot"></span>
       Java API / CloudBase CloudRun Ready
+      <button id="llmConfigBtn" class="llm-config-button" type="button">添加大模型</button>
     </div>
   </header>
 
@@ -128,6 +129,37 @@
     </section>
   </main>
 
-  <script src="/app.js?v=20260602-larger-resume-fields"></script>
+  <div id="llmModal" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="llmModalTitle">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">可选增强</p>
+          <h2 id="llmModalTitle">大模型配置</h2>
+        </div>
+        <button id="llmCloseBtn" type="button" aria-label="关闭">关闭</button>
+      </div>
+      <label class="toggle-row">
+        <input id="llmEnabled" type="checkbox">
+        <span>启用大模型增强诊断</span>
+      </label>
+      <label>模型服务
+        <select id="llmProvider"></select>
+      </label>
+      <label>模型
+        <select id="llmModel"></select>
+      </label>
+      <label>API Key
+        <input id="llmApiKey" type="password" placeholder="填写 DASHSCOPE_API_KEY">
+      </label>
+      <p class="modal-note">请求地址：<code id="llmBaseUrlText">https://dashscope-intl.aliyuncs.com/compatible-mode/v1</code></p>
+      <p class="modal-note">Key 只保存在当前浏览器，并且只会在点击“查看诊断”或“分析心仪岗位”时随请求发送给本服务。DeepSeek、智谱、硅基流动均按 OpenAI-compatible Chat Completions 方式调用。</p>
+      <div class="modal-actions">
+        <button id="llmClearBtn" type="button">清除配置</button>
+        <button id="llmSaveBtn" class="primary" type="button">保存配置</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js?v=20260603-llm-status-ui"></script>
 </body>
 </html>

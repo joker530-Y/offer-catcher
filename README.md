@@ -79,6 +79,32 @@ http://localhost:8080/healthz
 }
 ```
 
+## Qwen 大模型增强（可选）
+
+默认不启用大模型，岗位诊断使用规则引擎。配置 Qwen / DashScope OpenAI-compatible API 后，`/api/analyze` 会在规则诊断基础上尝试生成更自然的命中点、缺口、风险和简历优化建议；模型失败、超时或未配置密钥时会自动回退规则诊断。
+
+也可以在页面右上角点击“添加大模型”，选择 Qwen、DeepSeek、智谱 GLM 或硅基流动模型并填写 API Key。该配置只保存在当前浏览器，服务端不写入数据库或配置文件。
+
+本地启用示例：
+
+```powershell
+$env:LLM_ENABLED = "true"
+$env:LLM_PROVIDER = "qwen"
+$env:LLM_BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+$env:LLM_MODEL = "qwen-plus"
+$env:DASHSCOPE_API_KEY = "<your-api-key>"
+powershell -ExecutionPolicy Bypass -File scripts/run.ps1
+```
+
+可选 provider 默认值：
+
+- `qwen`：`https://dashscope-intl.aliyuncs.com/compatible-mode/v1`，默认模型 `qwen-plus`，环境变量 `DASHSCOPE_API_KEY` 或 `QWEN_API_KEY`。
+- `deepseek`：`https://api.deepseek.com`，默认模型 `deepseek-v4-flash`，环境变量 `DEEPSEEK_API_KEY`。
+- `zhipu`：`https://open.bigmodel.cn/api/paas/v4`，默认模型 `glm-4-flash`，环境变量 `ZHIPU_API_KEY`、`ZHIPUAI_API_KEY` 或 `BIGMODEL_API_KEY`。
+- `siliconflow`：`https://api.siliconflow.cn/v1`，默认模型 `Qwen/Qwen2.5-7B-Instruct`，环境变量 `SILICONFLOW_API_KEY`。
+
+CloudBase 部署时只在环境变量中配置上述值，不要把 API Key 写入仓库。接口返回会新增 `llmEnhanced` 和 `llmProvider` 字段，原有 `report` 结构保持兼容。
+
 ## CloudBase CloudRun 部署
 
 不要把腾讯云密钥或 `.env` 写入仓库。先在本机完成 CloudBase CLI 登录或配置凭据，然后执行：

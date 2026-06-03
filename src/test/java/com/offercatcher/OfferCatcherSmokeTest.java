@@ -1,6 +1,8 @@
 package com.offercatcher;
 
 import com.offercatcher.matching.MatchEngine;
+import com.offercatcher.llm.LlmConfig;
+import com.offercatcher.llm.LlmDiagnosticClient;
 import com.offercatcher.model.Job;
 import com.offercatcher.model.MatchReport;
 import com.offercatcher.model.SourceStatus;
@@ -10,9 +12,13 @@ import com.offercatcher.resume.ResumeParseResult;
 import com.offercatcher.resume.ResumeParser;
 import com.offercatcher.util.Json;
 import com.offercatcher.util.TextUtils;
+import com.sun.net.httpserver.HttpServer;
 
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
@@ -20,15 +26,122 @@ public class OfferCatcherSmokeTest {
     public static void main(String[] args) {
         testTextSplit();
         testJsonRoundTrip();
+        testJsonUnicodeEscapes();
         testMatchEngine();
+        testLlmDisabledFallback();
+        testLlmRequestConfig();
+        testLlmEnhancementWithFakeServer();
         testStudentResumePdfIfPresent();
         System.out.println("OfferCatcherSmokeTest passed");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void testJsonUnicodeEscapes() {
+        Map<String, Object> parsed = (Map<String, Object>) Json.parse("{\"text\":\"\\u4f60\\u597d\",\"items\":[\"\\u7b80\\u5386\"]}");
+        require("你好".equals(parsed.get("text")), "Json should parse unicode escapes");
+        require(((List<?>) parsed.get("items")).contains("简历"), "Json should parse unicode escapes in arrays");
     }
 
     private static void testTextSplit() {
         List<String> values = TextUtils.split("Java, Spring；Redis、MySQL\nDocker");
         require(values.size() == 5, "TextUtils.split should handle Chinese and English separators");
         require(values.contains("Redis"), "TextUtils.split should keep Redis");
+    }
+
+    private static void testLlmDisabledFallback() {
+        LlmDiagnosticClient client = new LlmDiagnosticClient(new LlmConfig(false, "qwen", "https://example.com/v1", "qwen-plus", ""));
+        StudentProfile profile = new StudentProfile(
+                "林同学",
+                "某高校",
+                "软件工程",
+                "2026届",
+                List.of("后端开发"),
+                List.of("深圳"),
+                List.of("Java", "Spring", "MySQL"),
+                List.of("某公司 | 后端开发实习 | 2025.01 - 2025.03"),
+                List.of("校园交易平台：负责 Java 接口和 MySQL 表设计。"),
+                List.of("后端工程"),
+                List.of(),
+                "熟悉 Java Spring MySQL。"
+        );
+        Job job = Job.fromCustomJd("后端开发实习生，要求 Java Spring MySQL，有项目经验。");
+        MatchReport report = new MatchEngine().analyze(profile, job);
+        require(client.enhance(profile, job, report).isEmpty(), "Disabled LLM client should return empty enhancement");
+    }
+
+    private static void testLlmRequestConfig() {
+        LlmConfig config = LlmConfig.fromRequest(Map.of(
+                "enabled", true,
+                "provider", "qwen",
+                "baseUrl", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+                "model", "qwen-turbo",
+                "apiKey", "fake-key"
+        )).orElseThrow();
+        require(config.available(), "Request LLM config should be available when enabled with key");
+        require("qwen-turbo".equals(config.model()), "Request LLM config should keep selected model");
+        require(config.chatCompletionsUrl().endsWith("/chat/completions"), "Request LLM config should build chat completions URL");
+        LlmConfig deepseek = LlmConfig.fromRequest(Map.of(
+                "enabled", true,
+                "provider", "deepseek",
+                "apiKey", "fake-key"
+        )).orElseThrow();
+        require("https://api.deepseek.com/chat/completions".equals(deepseek.chatCompletionsUrl()), "DeepSeek should use default OpenAI-compatible endpoint");
+        require("deepseek-v4-flash".equals(deepseek.model()), "DeepSeek request config should use default model");
+        LlmConfig zhipu = LlmConfig.fromRequest(Map.of("enabled", true, "provider", "zhipu", "apiKey", "fake-key")).orElseThrow();
+        require(zhipu.chatCompletionsUrl().contains("open.bigmodel.cn"), "Zhipu should use BigModel default endpoint");
+    }
+
+    private static void testLlmEnhancementWithFakeServer() {
+        HttpServer server = null;
+        try {
+            server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+            server.createContext("/v1/chat/completions", exchange -> {
+                exchange.getRequestBody().readAllBytes();
+                String content = Json.stringify(Map.of(
+                        "explanation", "大模型诊断：建议优先突出 Java 接口和 MySQL 项目证据。",
+                        "strengths", List.of("Java 与岗位技能要求一致", "项目经历包含接口开发"),
+                        "gaps", List.of("需要补充更明确的量化结果"),
+                        "risks", List.of("投递前仍需以官网 JD 为准"),
+                        "resumeAdvice", List.of("在项目经历中写清 Spring 接口、数据库设计和优化结果")
+                ));
+                String response = Json.stringify(Map.of(
+                        "choices", List.of(Map.of("message", Map.of("content", content)))
+                ));
+                byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+                exchange.sendResponseHeaders(200, bytes.length);
+                try (OutputStream out = exchange.getResponseBody()) {
+                    out.write(bytes);
+                }
+            });
+            server.start();
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort() + "/v1";
+            LlmDiagnosticClient client = new LlmDiagnosticClient(new LlmConfig(true, "qwen", baseUrl, "qwen-plus", "fake-key"));
+            StudentProfile profile = new StudentProfile(
+                    "林同学",
+                    "某高校",
+                    "软件工程",
+                    "2026届",
+                    List.of("后端开发"),
+                    List.of("深圳"),
+                    List.of("Java", "Spring", "MySQL"),
+                    List.of("某公司 | 后端开发实习 | 2025.01 - 2025.03"),
+                    List.of("校园交易平台：负责 Java 接口和 MySQL 表设计。"),
+                    List.of("后端工程"),
+                    List.of(),
+                    "熟悉 Java Spring MySQL。"
+            );
+            Job job = Job.fromCustomJd("后端开发实习生，要求 Java Spring MySQL，有项目经验。");
+            MatchReport report = new MatchEngine().analyze(profile, job);
+            MatchReport enhanced = client.enhance(profile, job, report).orElseThrow();
+            require(enhanced.explanation().contains("大模型诊断"), "Enabled LLM client should enhance explanation");
+            require(enhanced.totalScore() == report.totalScore(), "LLM enhancement should keep rule score");
+            require(!enhanced.resumeAdvice().isEmpty(), "LLM enhancement should keep advice list");
+        } catch (Exception ex) {
+            throw new AssertionError("Fake LLM enhancement failed", ex);
+        } finally {
+            if (server != null) server.stop(0);
+        }
     }
 
     @SuppressWarnings("unchecked")

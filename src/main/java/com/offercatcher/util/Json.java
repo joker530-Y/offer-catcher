@@ -129,6 +129,17 @@ public final class Json {
                         case 't' -> sb.append('\t');
                         case '"' -> sb.append('"');
                         case '\\' -> sb.append('\\');
+                        case 'b' -> sb.append('\b');
+                        case 'f' -> sb.append('\f');
+                        case '/' -> sb.append('/');
+                        case 'u' -> {
+                            if (pos + 4 > raw.length()) {
+                                throw new IllegalArgumentException("Invalid unicode escape near position " + pos);
+                            }
+                            String hex = raw.substring(pos, pos + 4);
+                            sb.append((char) Integer.parseInt(hex, 16));
+                            pos += 4;
+                        }
                         default -> sb.append(next);
                     }
                 } else {

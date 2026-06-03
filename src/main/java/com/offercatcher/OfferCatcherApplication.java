@@ -2,6 +2,9 @@ package com.offercatcher;
 
 import com.offercatcher.adapters.LiveJobFinder;
 import com.offercatcher.adapters.OfficialSources;
+import com.offercatcher.llm.LlmConfig;
+import com.offercatcher.llm.LlmDiagnosticResult;
+import com.offercatcher.llm.LlmDiagnosticClient;
 import com.offercatcher.matching.CompliancePolicy;
 import com.offercatcher.matching.MatchEngine;
 import com.offercatcher.model.Job;
@@ -41,6 +44,7 @@ public class OfferCatcherApplication {
     private static final long MATCH_CACHE_TTL_MILLIS = 5 * 60 * 1000L;
     private static final LiveJobFinder FINDER = new LiveJobFinder(OfficialSources.load());
     private static final MatchEngine ENGINE = new MatchEngine();
+    private static final LlmDiagnosticClient LLM = new LlmDiagnosticClient(LlmConfig.fromEnv());
     private static final Map<String, CachedMatch> MATCH_CACHE = new ConcurrentHashMap<>();
 
     public static void main(String[] args) throws IOException {
@@ -156,10 +160,21 @@ public class OfferCatcherApplication {
             String jobId = asString(body.get("jobId"));
             String customJd = asString(body.get("customJd"));
             Job job = customJd.isBlank() ? findCachedJob(profile, jobId).orElseGet(() -> FINDER.findGeneratedJob(profile, jobId)) : Job.fromCustomJd(customJd);
-            MatchReport report = ENGINE.analyze(profile, job);
+            MatchReport ruleReport = ENGINE.analyze(profile, job);
+            LlmDiagnosticClient llm = LlmConfig.fromRequest(body.get("llmConfig"))
+                    .map(LlmDiagnosticClient::new)
+                    .orElse(LLM);
+            LlmDiagnosticResult llmResult = llm.diagnose(profile, job, ruleReport);
+            MatchReport report = llmResult.report().orElse(ruleReport);
             sendJson(exchange, 200, Map.of(
                     "job", job.toMap(),
                     "report", report.toMap(),
+                    "llmEnhanced", llmResult.enhanced(),
+                    "llmAttempted", llmResult.attempted(),
+                    "llmProvider", llmResult.provider(),
+                    "llmModel", llmResult.model(),
+                    "llmStatus", llmResult.status(),
+                    "llmMessage", llmResult.message(),
                     "generatedAt", Instant.now().toString()
             ));
         } catch (RuntimeException ex) {
